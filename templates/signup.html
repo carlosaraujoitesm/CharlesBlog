@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<form  method="post">
+  <div class="container">
+
+    <h1>Sign Up</h1>
+    <p>Please fill in this form to create an account.</p>
+    <hr>
+
+    <label for="username"><b>Username</b></label>
+    <input type="text" placeholder="Enter username" name="username" required> {{error_username}}
+    <br>
+
+    <label for="email"><b>Email</b></label>
+    <input type="text" placeholder="Enter Email" name="email" required>  {{error_email}}
+    <br>
+
+    <label for="psw"><b>Password</b></label>
+    <input type="password" placeholder="Enter Password" name="psw" required> {{error_password}}
+    <br>
+
+    <label for="psw-repeat"><b>Repeat Password</b></label>
+    <input type="password" placeholder="Repeat Password" name="psw-repeat" required> {{error_verify}}
+    <br>
+    
+    <div class="clearfix">
+      <button type="submit" name="user-choice" value="cancel" formnovalidate> Cancel </button> 
+      <button type="submit" name="user-choice" value="signup" > Signup </button> 
+    </div>
+  </div>
+</form>
+</body>
+</html>
