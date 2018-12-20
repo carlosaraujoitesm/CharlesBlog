@@ -4,6 +4,11 @@
 
   {% for p in posts %}
     {{ p.render() | safe }}
+
+    <form method="post">
+      <button type="submit" name = "id_or_name" value="{{p.key()}} | {{p.key().id_or_name()}}">Comment</button>
+     
+    </form>
     <br><br>
   {% endfor %}
 

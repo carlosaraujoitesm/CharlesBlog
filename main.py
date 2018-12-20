@@ -16,17 +16,20 @@ template_dir = os.path.join(os.path.dirname(__file__),'templates')
 jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_dir),
             autoescape = True)
 
+#Use for hash secret for cookies.
 secret = 'du.uyX9fE~Tb6.pp&U3D-0smY0,Gqi$^jS34tzu9'
 
-#To load a template from environment
+#loads a template from environment
 def render_str(template,**params):
         t = jinja_env.get_template(template)
         #To render the template  with some variables
         return t.render(params)
 
+#receives a value and returns a hash to that, using the secret string
 def make_secure_val(val):
     return '%s|%s' % (val,hmac.new(secret,val).hexdigest())
 
+#takes one of the up secure vals and checks its integrity
 def check_secure_val(secure_val):
     val = secure_val.split('|')[0]
     if secure_val == make_secure_val(val):
@@ -43,30 +46,30 @@ class BlogHandler(webapp2.RequestHandler):
     def render(self,template,**kw):
         self.write(self.render_str(template,**kw))
 
-    def set_secure_cookie(self,username,val):
+    def set_secure_cookie(self,name,val):
         cookie_val =  make_secure_val(val)
         self.response.headers.add_header(
             'Set-Cookie',
-            '%s=%s; Path=/' % (username,cookie_val))
+            '%s=%s; Path=/' % (name,cookie_val))
 
-    def read_secure_cookie(self,username):
-        cookie_val = self.request.cookies.get(username)
-        print cookie_val
+    def read_secure_cookie(self,name):
+        cookie_val = self.request.cookies.get(name)
         return cookie_val and check_secure_val(cookie_val)
 
+    #sets the cookie
     def login(self,user):
         self.set_secure_cookie('user-id',str(user.key().id()))
 
     def logout(self):
         self.response.headers.add_header('Set-Cookie',
             'user-id=; Path=/')
-
+    #checks if the user is logged in or not 
     def initialize(self,*a,**kw):
         webapp2.RequestHandler.initialize(self,*a,**kw)
         uid = self.read_secure_cookie('user-id')
-        print uid
-        
         self.user = uid and User.by_id(int(uid))
+
+
 
 def make_salt(length=5):
     return ''.join(random.choice(letters) for x in xrange(length))
@@ -81,32 +84,38 @@ def valid_pw(username,password,h):
     salt = h.split(',')[0]
     return h == make_pw_hash(username,password,salt)
 
-def users_key(group='default'):
-    return db.Key.from_path('users',group)
-
 def render_post(response, post):
     response.out.write('<b>' + post.subject + '</b><br>')
     response.out.write(post.content)
+
 
 class MainPage(BlogHandler):
   def get(self):
       self.write("Hello, thank you for visiting my new Blog!")
 
+#ancestor for users
+def users_key(group='default'):
+    return db.Key.from_path('users',group)
+
 ### blog stuff
-def blog_key(username = 'default'):
-    return db.Key.from_path('blogs', username)
+def blog_key(name = 'default'):
+    return db.Key.from_path('blogs', name)
+
+
 
 class Post(db.Model):
+
     subject = db.StringProperty(required=True)
     content = db.TextProperty(required=True)
     created = db.DateTimeProperty(auto_now_add =True)
     last_modified = db.DateTimeProperty(auto_now =True)
+    
 
     #This is called from the template
     def render(self):
         self.render_text = self.content.replace('\n','<br>')
         return render_str('post.html', p = self)
-        
+
 class User(db.Model):
     username = db.StringProperty(required=True)
     pw_hash = db.StringProperty(required=True)
@@ -126,16 +135,35 @@ class User(db.Model):
                     username=username,
                     pw_hash = pw_hash,
                     email = email)
+    @classmethod
     def login(cls,username,pw):
         u = cls.by_username(username)
         if u and  valid_pw(username,pw,u.pw_hash):
             return u
-        
+
+   
+class Comment(db.Model):
+
+
+    content = db.TextProperty(required=True)
+    created = db.DateTimeProperty(auto_now_add =True)
+
 #This is a page for the entry
 class BlogFront(BlogHandler):
+
     def get(self):
-        posts = db.GqlQuery("select * from Post order by created desc limit 10")
-        self.render('front.html',posts=posts)
+        if self.user:
+            posts = db.GqlQuery("select * from Post order by created desc limit 10")
+            self.render('front.html',posts=posts)
+        else:
+            self.redirect('/signin')
+
+    def post(self):
+        if self.user:
+            key_id = self.request.get('id_or_name')
+            self.redirect('/blog/%s/newcomment' % str(key_id))
+        else:
+            self.redirect('/signin')
 
 #This is the page for a particular post
 class PostPage(BlogHandler):
@@ -151,7 +179,10 @@ class PostPage(BlogHandler):
 
 class NewPost(BlogHandler):
     def get(self):
-        self.render('newpost.html')
+        if self.user:
+            self.render('newpost.html')
+        else:
+            self.redirect('/signin')
     def post(self):
 
         subject = self.request.get('subject')
@@ -162,13 +193,17 @@ class NewPost(BlogHandler):
             p.put()
             self.redirect("/blog/%s" % str(p.key().id()))
         else:
-            error = "subject and content, please!"
+            error = "subject and description, please!"
             self.render('newpost.html',subject=subject,content=content,error=error)
+
 
 class Signup(BlogHandler):
 
         def get(self):
-            self.render('signup.html')
+            if self.user:
+                self.redirect('/blog')
+            else:
+                self.render('signup.html')
 
         def post(self):
 
@@ -208,9 +243,80 @@ class Signup(BlogHandler):
                 raise NotImplementedError
 
 
-USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
+class Signin(BlogHandler):
+    def get(self):
+
+        if self.user:
+            self.redirect('/blog')
+        else:
+            self.render('login-form.html')
+
+    def post(self):
+        username = self.request.get('username')
+        password = self.request.get('password')
+        u = User.login(username,password)
+        if u:
+            self.login(u)
+            self.redirect('/welcome')
+        else:
+            msg = "Invalid login"
+            self.render('login-form.html',error = msg)
+
+class Signout(BlogHandler):
+    def get(self):
+        if self.user:
+            self.logout()
+        else:   
+            self.redirect('/signin')
+
+class Comments(BlogHandler):
+    def get(self,key_id_post,comment_id):
+            if self.user:
+                address_k = db.Key.from_path('Post',int(key_id_post.split('|')[1]),'Comment',int(comment_id),parent=blog_key())
+                comment = db.get(address_k)
+                #username = comment.username
+                comments = comment.content
+                self.render('comments.html',comments=comments)
+            else:   
+                self.redirect('/signin')
+
+class NewComment(BlogHandler):
+
+    def get(self,key_id):
+        if self.user:
+            self.render('comment.html')
+        else:   
+            self.redirect('/signin')
+
+    def post(self,key_id):
+    
+        content = self.request.get('content')
+
+        #Comment on a post
+        if content:
+            #Retrieve Post Key  
+       
+            key = key_id.split('|')[0]
+            post_id = key_id.split('|')[1]
+            address_k = db.Key.from_path('Post',int(post_id),parent=blog_key())
+            p = db.get(address_k)
+            c = Comment(parent = p.key() , content=content)
+            c.put()
+            self.redirect("/blog/%s/comments/%s" % (str(key_id),str(c.key().id())))
+
+        else:
+            error = "content, please!"
+            self.render('comment.html',content=content,error=error)
+
+
+
 def valid_username(username):
     return username and USER_RE.match(username)
+
+
+USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
+def valid_username(username):
+     return username and USER_RE.match(username)
 
 PASS_RE = re.compile(r"^.{3,20}$")
 def valid_password(password):
@@ -234,11 +340,10 @@ class Register(Signup):
 
 class Welcome(BlogHandler):
         def get(self):
-            print "NOOOOOOOOOOOOOOOOOOOO"
             if self.user:
                 self.render('welcome.html',username = self.user.username)
             else:
-                self.redirect('/signup')
+                self.redirect('/signin')
 
 app = webapp2.WSGIApplication([('/',MainPage),
                                ('/signup',Register),
@@ -246,6 +351,10 @@ app = webapp2.WSGIApplication([('/',MainPage),
                                ('/blog/?',BlogFront),
                                ('/blog/([0-9]+)',PostPage),
                                ('/blog/newpost',NewPost),
+                               ('/blog/(.*?)/newcomment',NewComment),
+                               ('/blog/(.*?)/comments/([0-9]+)',Comments),
+                               ('/signin',Signin),
+                               ('/signout',Signout),
                                ],debug = True)
 
 
