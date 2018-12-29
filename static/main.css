@@ -82,3 +82,30 @@ input[type=submit] {
     margin-top: 5px;
 }
 
+
+
+.comment + .comment {
+    margin-top: 15px;
+}
+
+.comment-heading {
+    position: relative;
+    border-bottom: 3px solid #666;
+}
+
+.comment-title {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.comment-date {
+    position: absolute;
+    right: 0px;
+    bottom: 0px;
+    color: #999;
+
+}
+
+.comment-content {
+    margin-top: 5px;
+}

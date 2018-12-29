@@ -1,4 +1,3 @@
-
 import os
 import re
 
@@ -11,12 +10,12 @@ import hashlib
 from google.appengine.ext import db
 from string import letters
 
-#Environment object on application initialization to load templates.
+#environment object on application initialization to load templates.
 template_dir = os.path.join(os.path.dirname(__file__),'templates')
 jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_dir),
             autoescape = True)
 
-#Use for hash secret for cookies.
+#use for hash secret for cookies.
 secret = 'du.uyX9fE~Tb6.pp&U3D-0smY0,Gqi$^jS34tzu9'
 
 #loads a template from environment
@@ -28,49 +27,13 @@ def render_str(template,**params):
 #receives a value and returns a hash to that, using the secret string
 def make_secure_val(val):
     return '%s|%s' % (val,hmac.new(secret,val).hexdigest())
-
 #takes one of the up secure vals and checks its integrity
 def check_secure_val(secure_val):
     val = secure_val.split('|')[0]
     if secure_val == make_secure_val(val):
         return val
 
-class BlogHandler(webapp2.RequestHandler):
-
-    def write(self,*a, **kw):
-        self.response.out.write(*a, **kw)
-
-    def render_str(self,template,**params):
-        return render_str(template,**params)
-
-    def render(self,template,**kw):
-        self.write(self.render_str(template,**kw))
-
-    def set_secure_cookie(self,name,val):
-        cookie_val =  make_secure_val(val)
-        self.response.headers.add_header(
-            'Set-Cookie',
-            '%s=%s; Path=/' % (name,cookie_val))
-
-    def read_secure_cookie(self,name):
-        cookie_val = self.request.cookies.get(name)
-        return cookie_val and check_secure_val(cookie_val)
-
-    #sets the cookie
-    def login(self,user):
-        self.set_secure_cookie('user-id',str(user.key().id()))
-
-    def logout(self):
-        self.response.headers.add_header('Set-Cookie',
-            'user-id=; Path=/')
-    #checks if the user is logged in or not 
-    def initialize(self,*a,**kw):
-        webapp2.RequestHandler.initialize(self,*a,**kw)
-        uid = self.read_secure_cookie('user-id')
-        self.user = uid and User.by_id(int(uid))
-
-
-
+#passwords security related
 def make_salt(length=5):
     return ''.join(random.choice(letters) for x in xrange(length))
 
@@ -88,34 +51,29 @@ def render_post(response, post):
     response.out.write('<b>' + post.subject + '</b><br>')
     response.out.write(post.content)
 
-
-class MainPage(BlogHandler):
-  def get(self):
-      self.write("Hello, thank you for visiting my new Blog!")
-
-#ancestor for users
 def users_key(group='default'):
     return db.Key.from_path('users',group)
+def blog_key(group = 'default'):
+    return db.Key.from_path('blogs', group)
 
-### blog stuff
-def blog_key(name = 'default'):
-    return db.Key.from_path('blogs', name)
+def valid_username(username):
+    return username and USER_RE.match(username)
 
 
+USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
+def valid_username(username):
+     return username and USER_RE.match(username)
 
-class Post(db.Model):
+PASS_RE = re.compile(r"^.{3,20}$")
+def valid_password(password):
+    return password and PASS_RE.match(password)
 
-    subject = db.StringProperty(required=True)
-    content = db.TextProperty(required=True)
-    created = db.DateTimeProperty(auto_now_add =True)
-    last_modified = db.DateTimeProperty(auto_now =True)
-    
+EMAIL_RE  = re.compile(r'^[\S]+@[\S]+\.[\S]+$')
+def valid_email(email):
+    return email and EMAIL_RE.match(email)
 
-    #This is called from the template
-    def render(self):
-        self.render_text = self.content.replace('\n','<br>')
-        return render_str('post.html', p = self)
 
+#definition of entities and properties
 class User(db.Model):
     username = db.StringProperty(required=True)
     pw_hash = db.StringProperty(required=True)
@@ -141,43 +99,91 @@ class User(db.Model):
         if u and  valid_pw(username,pw,u.pw_hash):
             return u
 
-   
+class Post(db.Model):
+    subject = db.StringProperty(required=True)
+    content = db.TextProperty(required=True)
+    author =  db.StringProperty()
+    created = db.DateTimeProperty(auto_now_add =True)
+    last_modified = db.DateTimeProperty(auto_now =True)
+
+    def render(self):
+        self.render_text = self.content.replace('\n','<br>')
+        return render_str('post.html', p = self)
+
 class Comment(db.Model):
 
-
     content = db.TextProperty(required=True)
-    created = db.DateTimeProperty(auto_now_add =True)
+    author =  db.StringProperty()
+    def render(self):
+        self.render_text = self.content.replace('\n','<br>')
+        return render_str('post_comment.html', c = self)
 
-#This is a page for the entry
+#parent class
+class BlogHandler(webapp2.RequestHandler):
+
+    def write(self,*a, **kw):
+        self.response.out.write(*a, **kw)
+
+    def render_str(self,template,**params):
+        return render_str(template,**params)
+
+    def render(self,template,**kw):
+        self.write(self.render_str(template,**kw))
+
+    def set_secure_cookie(self,name,val):
+        cookie_val =  make_secure_val(val)
+        self.response.headers.add_header(
+            'Set-Cookie',
+            '%s=%s; Path=/' % (name,cookie_val))
+    def read_secure_cookie(self,name):
+        cookie_val = self.request.cookies.get(name)
+        return cookie_val and check_secure_val(cookie_val)
+    def login(self,user):
+        self.set_secure_cookie('user-id',str(user.key().id()))
+    def logout(self):
+        self.response.headers.add_header('Set-Cookie',
+            'user-id=; Path=/')
+    def initialize(self,*a,**kw):
+        webapp2.RequestHandler.initialize(self,*a,**kw)
+        uid = self.read_secure_cookie('user-id')
+        self.user = uid and User.by_id(int(uid))
+        self.username = User.by_id(int(uid)).username
+
+class MainPage(BlogHandler):
+  def get(self):
+      self.write("Hello, thank you for visiting Charles Blog!")
+
+
 class BlogFront(BlogHandler):
 
     def get(self):
         if self.user:
             posts = db.GqlQuery("select * from Post order by created desc limit 10")
             self.render('front.html',posts=posts)
+            '''
+            for post in posts:
+                comments = Comment.all().ancestor(post).fetch(5)
+                self.render('front.html',post=post,comments=comments)
+            '''
         else:
             self.redirect('/signin')
 
     def post(self):
         if self.user:
-            key_id = self.request.get('id_or_name')
-            self.redirect('/blog/%s/newcomment' % str(key_id))
+            post_key = self.request.get('post_key_id').split('|')[0]
+            post_id = self.request.get('post_key_id').split('|')[1]
+            self.redirect('/blog/%s/newcomment/%s' % (str(post_id),str(post_key)))
         else:
             self.redirect('/signin')
 
-#This is the page for a particular post
-class PostPage(BlogHandler):
+class Welcome(BlogHandler):
+        def get(self):
+            if self.user:
+                self.render('welcome.html',username = self.user.username)
+            else:
+                self.redirect('/signin')
 
-    def get(self,post_id):
-        key = db.Key.from_path('Post',int(post_id),parent=blog_key())
-        post = db.get(key)
-
-        if not post:
-            self.error(404)
-            return
-        self.render('permalink.html',post=post)
-
-class NewPost(BlogHandler):
+class CreatePost(BlogHandler):
     def get(self):
         if self.user:
             self.render('newpost.html')
@@ -187,15 +193,55 @@ class NewPost(BlogHandler):
 
         subject = self.request.get('subject')
         content = self.request.get('content')
-
+        #returns author name
+        uid = self.read_secure_cookie('user-id')
+        author = self.username
+        
         if subject and content:
-            p = Post(parent = blog_key(), subject=subject, content=content)
+            p = Post(parent = blog_key(), subject=subject, author = author ,content=content)
             p.put()
             self.redirect("/blog/%s" % str(p.key().id()))
         else:
             error = "subject and description, please!"
             self.render('newpost.html',subject=subject,content=content,error=error)
 
+#This is the page for a particular post
+class PostPage(BlogHandler):
+
+    def get(self,post_id):
+        key = db.Key.from_path('Post',int(post_id),parent=blog_key())
+        post = db.get(key)
+        comments = Comment.all().ancestor(post).fetch(100)
+        if not post:
+            self.error(404)
+            return
+        self.render('permalink.html',post=post,comments=comments)
+
+
+class WriteComment(BlogHandler):
+
+    def get(self,post_id,post_key):
+        
+        if self.user:
+            self.render('comment.html')
+        else:   
+            self.redirect('/signin')
+
+    def post(self,post_id,post_key):
+    
+        content = self.request.get('content')
+        uid = self.read_secure_cookie('user-id')
+        author = self.username
+
+        if content:
+            p = db.get(post_key)
+            c = Comment(parent = p.key() , content=content, author=author)
+            c.put()
+            self.redirect('/blog/%s' % str(post_id))
+
+        else:
+            error = "content, please!"
+            self.render('comment.html',content=content,error=error)
 
 class Signup(BlogHandler):
 
@@ -269,63 +315,6 @@ class Signout(BlogHandler):
         else:   
             self.redirect('/signin')
 
-class Comments(BlogHandler):
-    def get(self,key_id_post,comment_id):
-            if self.user:
-                address_k = db.Key.from_path('Post',int(key_id_post.split('|')[1]),'Comment',int(comment_id),parent=blog_key())
-                comment = db.get(address_k)
-                #username = comment.username
-                comments = comment.content
-                self.render('comments.html',comments=comments)
-            else:   
-                self.redirect('/signin')
-
-class NewComment(BlogHandler):
-
-    def get(self,key_id):
-        if self.user:
-            self.render('comment.html')
-        else:   
-            self.redirect('/signin')
-
-    def post(self,key_id):
-    
-        content = self.request.get('content')
-
-        #Comment on a post
-        if content:
-            #Retrieve Post Key  
-       
-            key = key_id.split('|')[0]
-            post_id = key_id.split('|')[1]
-            address_k = db.Key.from_path('Post',int(post_id),parent=blog_key())
-            p = db.get(address_k)
-            c = Comment(parent = p.key() , content=content)
-            c.put()
-            self.redirect("/blog/%s/comments/%s" % (str(key_id),str(c.key().id())))
-
-        else:
-            error = "content, please!"
-            self.render('comment.html',content=content,error=error)
-
-
-
-def valid_username(username):
-    return username and USER_RE.match(username)
-
-
-USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
-def valid_username(username):
-     return username and USER_RE.match(username)
-
-PASS_RE = re.compile(r"^.{3,20}$")
-def valid_password(password):
-    return password and PASS_RE.match(password)
-
-EMAIL_RE  = re.compile(r'^[\S]+@[\S]+\.[\S]+$')
-def valid_email(email):
-    return email and EMAIL_RE.match(email)
-
 class Register(Signup):
     def done(self):
         u = User.by_username(self.username)
@@ -335,35 +324,19 @@ class Register(Signup):
         else:
             u = User.register(self.username,self.password,self.email)
             u.put()
-        self.login(u)
-        self.redirect('/welcome')
-
-class Welcome(BlogHandler):
-        def get(self):
-            if self.user:
-                self.render('welcome.html',username = self.user.username)
-            else:
-                self.redirect('/signin')
+            self.login(u)
+            self.redirect('/welcome')
 
 app = webapp2.WSGIApplication([('/',MainPage),
                                ('/signup',Register),
                                ('/welcome',Welcome),
                                ('/blog/?',BlogFront),
                                ('/blog/([0-9]+)',PostPage),
-                               ('/blog/newpost',NewPost),
-                               ('/blog/(.*?)/newcomment',NewComment),
-                               ('/blog/(.*?)/comments/([0-9]+)',Comments),
+                               ('/blog/newpost',CreatePost),
+                               ('/blog/(.*?)/newcomment/(.*?)',WriteComment),
                                ('/signin',Signin),
                                ('/signout',Signout),
                                ],debug = True)
-
-
-
-
-
-
-
-
 
 
 ### Birthday validation stuff
